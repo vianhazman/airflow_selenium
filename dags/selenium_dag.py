@@ -5,7 +5,7 @@ from airflow.operators.dummy_operator import DummyOperator
 from airflow.operators.python_operator import PythonOperator
 from airflow.operators.python_operator import BranchPythonOperator
 import airflow.hooks.S3_hook
-from selenium_scripts.wake_up_to_money import download_podcast
+from selenium_scripts.get_movement_range import get_movement_range
 from datetime import datetime, timedelta
 import logging
 
@@ -38,16 +38,6 @@ def remove_file(file_name, local_path):
         logging.info('removed {}'.format(file_path))
 
 
-def weekday_branch():
-    '''
-    Returns task_id based on day of week.
-    '''
-    if datetime.today().weekday() in range(0, 5):
-        return 'get_podcast'
-    else:
-        return 'end'
-
-
 date = '{{ ds_nodash }}'
 file_name = 'episode_{}.mp3'.format(date)
 bucket_name = 'wake_up_to_money'
@@ -58,8 +48,7 @@ local_downloads = os.path.join(cwd, 'downloads')
 default_args = {
     'owner': 'harry_daniels',
     # 'wait_for_downstream': True,
-    'start_date': datetime(2019, 10, 8),
-    'end_date': datetime(2019, 10, 20),
+    'start_date': datetime(2020, 10, 17),
     'retries': 3,
     'retries_delay': timedelta(minutes=5)
     }
@@ -68,21 +57,12 @@ dag = DAG('selenium_example_dag',
           schedule_interval='0 7 * * *',
           default_args=default_args)
 
-start = DummyOperator(
-    task_id='start',
-    dag=dag)
-
-weekday_branch = BranchPythonOperator(
-    python_callable=weekday_branch,
-    task_id='weekday_branch',
-    dag=dag)
-
-get_podcast = SeleniumOperator(
-    script=download_podcast,
-    script_args=['https://www.bbc.co.uk/programmes/b0070lr5/episodes/downloads',
-                 local_downloads,
-                 date],
-    task_id='get_podcast',
+get_csv = SeleniumOperator(
+    script=get_movement_range,
+    script_args=["https://web.facebook.com/geoinsights-portal/downloads/vector/?id=642750926308152&ds={}&extra%5Bcrisis_name%5D=IDN_gadm_2",
+                 "favianhazman@yahoo.co.id",
+                 "september05"],
+    task_id='get_movement_range',
     dag=dag)
 
 upload_podcast_to_s3 = ExtendedPythonOperator(
@@ -100,13 +80,5 @@ remove_local_podcast = ExtendedPythonOperator(
     task_id='remove_local_podcast',
     dag=dag)
 
-end = DummyOperator(
-    task_id='end',
-    dag=dag)
-
-start >> weekday_branch
-weekday_branch >> get_podcast
-get_podcast >> upload_podcast_to_s3
+get_csv >> upload_podcast_to_s3
 upload_podcast_to_s3 >> remove_local_podcast
-remove_local_podcast >> end
-weekday_branch >> end
